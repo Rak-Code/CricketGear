@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { signUp } from "@/lib/firebase/auth"
+import { register } from "@/lib/firebase/firebase"
 
 interface RegisterModalProps {
   isOpen: boolean
@@ -43,17 +43,25 @@ export default function RegisterModal({ isOpen, onClose, onLoginClick }: Registe
     setLoading(true)
 
     try {
-      await signUp(email, password, name)
+      await register(email, password)
       toast({
         title: "Registration successful",
         description: "Your account has been created successfully.",
       })
       onClose()
       router.refresh()
-    } catch (error) {
+    } catch (error: any) {
+      let errorMessage = "There was an error creating your account. Please try again."
+      if (error.code === 'auth/email-already-in-use') {
+        errorMessage = "An account with this email already exists."
+      } else if (error.code === 'auth/weak-password') {
+        errorMessage = "Password should be at least 6 characters long."
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = "Please enter a valid email address."
+      }
       toast({
         title: "Registration failed",
-        description: "There was an error creating your account. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       })
     } finally {
@@ -174,4 +182,3 @@ export default function RegisterModal({ isOpen, onClose, onLoginClick }: Registe
     </Dialog>
   )
 }
-

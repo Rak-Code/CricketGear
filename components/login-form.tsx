@@ -1,6 +1,6 @@
 "use client"
 
-import type React from "react"
+import { useEffect } from "react"
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
-import { signIn } from "@/lib/firebase/auth"
+import { signIn } from "@/lib/firebase/firebase"
+import { getAuth, onAuthStateChanged } from "firebase/auth"
 
 export default function LoginForm() {
   const router = useRouter()
@@ -19,22 +20,59 @@ export default function LoginForm() {
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Check auth state
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(getAuth(), (user) => {
+      if (user) {
+        toast({
+          title: "Login successful",
+          description: "You have been logged in successfully.",
+        })
+        router.push("/")
+      }
+    })
+
+    return () => unsubscribe()
+  }, [router, toast])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
+    setError(null)
 
     try {
-      await signIn(email, password)
-      toast({
-        title: "Login successful",
-        description: "You have been logged in successfully.",
-      })
-      router.push("/")
-    } catch (error) {
+      const result = await signIn(email, password)
+      console.log('Sign in result:', result)
+      
+      // Wait for auth state to update
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+    } catch (error: any) {
+      console.error('Login error:', error)
+      let errorMessage = "An error occurred. Please try again."
+      
+      if (error.code) {
+        switch(error.code) {
+          case 'auth/user-not-found':
+            errorMessage = "No account found with this email."
+            break
+          case 'auth/wrong-password':
+            errorMessage = "Incorrect password."
+            break
+          case 'auth/invalid-email':
+            errorMessage = "Please enter a valid email address."
+            break
+          default:
+            errorMessage = error.message || errorMessage
+        }
+      }
+      
+      setError(errorMessage)
       toast({
         title: "Login failed",
-        description: "Invalid email or password. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       })
     } finally {
@@ -120,4 +158,3 @@ export default function LoginForm() {
     </form>
   )
 }
-

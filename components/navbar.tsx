@@ -25,7 +25,7 @@ import RegisterModal from "@/components/register-modal"
 
 export default function Navbar() {
   const pathname = usePathname()
-  const { user, logout } = useAuth()
+  const { user, logout, isAdmin } = useAuth()
   const { cartItems } = useCart()
   const { wishlistItems } = useWishlist()
   const [isSearchOpen, setIsSearchOpen] = useState(false)
@@ -118,9 +118,11 @@ export default function Navbar() {
                     {route.label}
                   </Link>
                 ))}
-                <Link href="/admin" className="text-lg font-medium transition-colors hover:text-primary">
-                  Admin Dashboard
-                </Link>
+                {isAdmin && (
+                  <Link href="/admin" className="text-lg font-medium transition-colors hover:text-primary">
+                    Admin Dashboard
+                  </Link>
+                )}
                 {user && (
                   <>
                     <Link href="/profile" className="text-lg font-medium transition-colors hover:text-primary">
@@ -179,9 +181,11 @@ export default function Navbar() {
                 {route.label}
               </Link>
             ))}
-            <Link href="/admin" className="font-medium transition-colors hover:text-primary">
-              Admin
-            </Link>
+            {isAdmin && (
+              <Link href="/admin" className="font-medium transition-colors hover:text-primary">
+                Admin
+              </Link>
+            )}
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <div className={cn("relative", isSearchOpen ? "flex" : "hidden md:flex")}>
@@ -235,9 +239,11 @@ export default function Navbar() {
                   <DropdownMenuItem asChild>
                     <Link href="/wishlist">Wishlist</Link>
                   </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link href="/admin">Admin Dashboard</Link>
-                  </DropdownMenuItem>
+                  {isAdmin && (
+                    <DropdownMenuItem asChild>
+                      <Link href="/admin">Admin Dashboard</Link>
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={logout} className="text-red-500">
                     <LogOut className="mr-2 h-4 w-4" />

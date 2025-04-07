@@ -5,6 +5,7 @@ import NewsletterSignup from "@/components/newsletter-signup"
 import TestimonialSection from "@/components/testimonial-section"
 import FeaturedCollectionSection from "@/components/featured-collection-section"
 import PromoSection from "@/components/promo-section"
+import { app, analytics } from '../lib/firebase/firebase';
 
 export default function Home() {
   return (

@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { signIn } from "@/lib/firebase/auth"
+import { signIn } from "@/lib/firebase/firebase"
 
 interface LoginModalProps {
   isOpen: boolean
@@ -38,16 +38,32 @@ export default function LoginModal({ isOpen, onClose, onRegisterClick }: LoginMo
       })
       onClose()
 
-      // Hard redirect to force a complete page refresh
-      if (result.user.isAdmin) {
-        window.location.href = "/admin"
-      } else {
-        window.location.href = "/"
+      // Hard redirect to force a complete page refresh. 
+      // The AuthProvider will handle admin state based on custom claims.
+      window.location.href = "/" 
+    } catch (error: any) { // Ensure error is typed or handled safely
+      let errorMessage = "Invalid email or password. Please try again.";
+      // Add more specific error handling based on Firebase error codes if needed
+      if (error.code) {
+        switch(error.code) {
+          case 'auth/user-not-found':
+          case 'auth/wrong-password':
+          case 'auth/invalid-credential': // Common code for wrong email/password
+            errorMessage = "Invalid email or password.";
+            break;
+          case 'auth/invalid-email':
+            errorMessage = "Please enter a valid email address.";
+            break;
+          // Add other relevant Firebase Auth error codes here
+          default:
+            errorMessage = "An unexpected error occurred. Please try again.";
+            console.error('Login error:', error); // Log unexpected errors
+        }
       }
-    } catch (error) {
+      
       toast({
         title: "Login failed",
-        description: "Invalid email or password. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       })
     } finally {

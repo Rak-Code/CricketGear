@@ -2,7 +2,8 @@
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
 import type { User } from "@/lib/types"
-import { onAuthStateChanged, signOut } from "@/lib/firebase/auth"
+import { getAuth, onAuthStateChanged, signOut } from "firebase/auth"
+import { app } from "@/lib/firebase/firebase"
 
 interface AuthContextType {
   user: User | null
@@ -18,15 +19,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged((authUser) => {
+    const auth = getAuth(app)
+    const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
       if (authUser) {
-        // Set user with all properties including isAdmin
+        // Force refresh to get the latest claims
+        const idTokenResult = await authUser.getIdTokenResult(true);
+        
+        let isAdmin = false; // Initialize isAdmin
+
+        // --- Development Only: Static Admin User Check ---
+        if (authUser.email === 'admin@example.com') {
+          isAdmin = true;
+          console.warn("DEVELOPMENT MODE: User admin@example.com is granted admin privileges statically.");
+        } else {
+          // --- Production Logic: Check Custom Claims ---
+          isAdmin = idTokenResult.claims.admin === true; 
+        }
+        // ------------------------------------------------
+
         setUser({
           uid: authUser.uid,
           email: authUser.email || "",
           displayName: authUser.displayName || "User",
-          photoURL: authUser.photoURL,
-          isAdmin: authUser.isAdmin || false, // Use the isAdmin property from auth
+          photoURL: authUser.photoURL || undefined,
+          isAdmin: isAdmin, // Set isAdmin based on the logic above
         })
       } else {
         setUser(null)
@@ -39,7 +55,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
-      await signOut()
+      const auth = getAuth(app)
+      await signOut(auth)
       setUser(null)
       // Force a page refresh after logout to clear any state
       window.location.href = "/"
