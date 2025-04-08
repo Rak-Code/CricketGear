@@ -41,6 +41,8 @@ export default function LoginModal({ isOpen, onClose, onRegisterClick }: LoginMo
       // Hard redirect to force a complete page refresh. 
       // The AuthProvider will handle admin state based on custom claims.
       window.location.href = "/" 
+
+      console.log("[AdminCustomersPage useEffect] Logged-in user UID from context:", result?.user?.uid);
     } catch (error: any) { // Ensure error is typed or handled safely
       let errorMessage = "Invalid email or password. Please try again.";
       // Add more specific error handling based on Firebase error codes if needed
@@ -167,3 +169,4 @@ export default function LoginModal({ isOpen, onClose, onRegisterClick }: LoginMo
   )
 }
 
+   

@@ -1,122 +1,137 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
-import { Search, Filter, ArrowUpDown } from "lucide-react"
+import { Search, Filter, ArrowUpDown, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { useToast } from "@/components/ui/use-toast"
+import { db } from "@/lib/firebase/firebase"
+import { collection, getDocs, query, orderBy as firestoreOrderBy, Timestamp } from "firebase/firestore"
+import { format } from 'date-fns'
+import { useAuth } from "@/context/auth-context"
 
-// Mock customers data
-const customers = [
-  {
-    id: "user1",
-    name: "Rahul Sharma",
-    email: "rahul.sharma@example.com",
-    joined: "April 1, 2023",
-    orders: 3,
-    spent: 499.97,
-    status: "active",
-  },
-  {
-    id: "user2",
-    name: "Priya Patel",
-    email: "priya.patel@example.com",
-    joined: "April 2, 2023",
-    orders: 1,
-    spent: 129.99,
-    status: "active",
-  },
-  {
-    id: "user3",
-    name: "Arjun Singh",
-    email: "arjun.singh@example.com",
-    joined: "April 3, 2023",
-    orders: 2,
-    spent: 349.98,
-    status: "active",
-  },
-  {
-    id: "user4",
-    name: "Ananya Desai",
-    email: "ananya.desai@example.com",
-    joined: "April 4, 2023",
-    orders: 0,
-    spent: 0,
-    status: "inactive",
-  },
-  {
-    id: "user5",
-    name: "Vikram Mehta",
-    email: "vikram.mehta@example.com",
-    joined: "April 5, 2023",
-    orders: 5,
-    spent: 899.95,
-    status: "active",
-  },
-  {
-    id: "user6",
-    name: "Neha Gupta",
-    email: "neha.gupta@example.com",
-    joined: "April 6, 2023",
-    orders: 2,
-    spent: 259.98,
-    status: "active",
-  },
-  {
-    id: "user7",
-    name: "Rajesh Kumar",
-    email: "rajesh.kumar@example.com",
-    joined: "April 7, 2023",
-    orders: 1,
-    spent: 299.99,
-    status: "active",
-  },
-  {
-    id: "user8",
-    name: "Sonia Verma",
-    email: "sonia.verma@example.com",
-    joined: "April 8, 2023",
-    orders: 0,
-    spent: 0,
-    status: "inactive",
-  },
-]
+// Define an interface for the Firestore user data structure
+interface FirestoreUser {
+  uid: string;
+  displayName: string;
+  email: string;
+  createdAt: Timestamp; // Firestore Timestamp
+  isAdmin: boolean;
+  // Add other fields if they exist in your Firestore documents
+  // Example: ordersCount?: number; totalSpent?: number; status?: string;
+}
 
 export default function AdminCustomersPage() {
   const { toast } = useToast()
+  const { user, isAdmin, loading: authLoading } = useAuth()
+  const [customers, setCustomers] = useState<FirestoreUser[]>([])
+  const [dataLoading, setDataLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
-  const [sortField, setSortField] = useState("joined")
+  const [sortField, setSortField] = useState("createdAt")
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc")
 
-  // Filter and sort customers
+  // Fetch customers from Firestore, only if user is admin
+  useEffect(() => {
+    console.log("[AdminCustomersPage useEffect] Running effect..."); // Log effect start
+    console.log("[AdminCustomersPage useEffect] authLoading:", authLoading);
+    console.log("[AdminCustomersPage useEffect] isAdmin:", isAdmin);
+
+    // Don't fetch until auth state is loaded and user is confirmed admin
+    if (authLoading) {
+      console.log("[AdminCustomersPage useEffect] Auth is loading, returning.");
+      setDataLoading(true)
+      return
+    }
+    if (!isAdmin) {
+      console.log("[AdminCustomersPage useEffect] User is not admin, setting error.");
+      setError("Access Denied: You do not have permission to view this page.")
+      setDataLoading(false)
+      return
+    }
+    
+    console.log("[AdminCustomersPage useEffect] User is admin, proceeding to fetch."); // Log before fetch
+
+    const fetchCustomers = async () => {
+      setDataLoading(true)
+      setError(null)
+      try {
+        console.log("Fetching customers from Firestore...")
+        const usersCollectionRef = collection(db, "users")
+        const q = query(usersCollectionRef, firestoreOrderBy("createdAt", "desc"))
+        const querySnapshot = await getDocs(q)
+        
+        const fetchedCustomers = querySnapshot.docs.map(doc => {
+          const data = doc.data() as Omit<FirestoreUser, 'uid'> & { createdAt: Timestamp };
+          return {
+            ...data,
+            uid: doc.id,
+            createdAt: data.createdAt
+          } as FirestoreUser;
+        });
+        console.log("Fetched customers:", fetchedCustomers)
+
+        setCustomers(fetchedCustomers)
+      } catch (err: any) {
+        console.error("Error fetching customers:", err)
+        if (err.code === 'permission-denied') {
+          setError("Permission Denied: Check Firestore rules or admin status.")
+          toast({
+            title: "Permission Error",
+            description: "You don't have permission to access customer data.",
+            variant: "destructive",
+          })
+        } else {
+          setError("Failed to fetch customers. Please try again later.")
+          toast({
+            title: "Error",
+            description: "Could not fetch customer data.",
+            variant: "destructive",
+          })
+        }
+      } finally {
+        setDataLoading(false)
+      }
+    }
+
+    fetchCustomers()
+  }, [isAdmin, authLoading, toast])
+
+  // Filter and sort customers (client-side for now)
   const filteredCustomers = customers
     .filter((customer) => {
       const matchesSearch =
-        customer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        customer.displayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         customer.email.toLowerCase().includes(searchQuery.toLowerCase())
 
-      const matchesStatus = statusFilter === "all" || customer.status === statusFilter
+      const matchesStatus = true;
 
       return matchesSearch && matchesStatus
     })
     .sort((a, b) => {
-      if (sortField === "joined") {
-        // Simple date comparison for demo purposes
-        return sortDirection === "asc"
-          ? new Date(a.joined).getTime() - new Date(b.joined).getTime()
-          : new Date(b.joined).getTime() - new Date(a.joined).getTime()
-      } else if (sortField === "orders") {
-        return sortDirection === "asc" ? a.orders - b.orders : b.orders - a.orders
-      } else if (sortField === "spent") {
-        return sortDirection === "asc" ? a.spent - b.spent : b.spent - a.spent
+      let compareResult = 0;
+      switch (sortField) {
+        case 'displayName':
+          compareResult = a.displayName.localeCompare(b.displayName);
+          break;
+        case 'email':
+          compareResult = a.email.localeCompare(b.email);
+          break;
+        case 'createdAt':
+          if (a.createdAt && b.createdAt) {
+            compareResult = a.createdAt.toMillis() - b.createdAt.toMillis();
+          }
+          break;
+        default:
+          compareResult = 0;
       }
-      return 0
-    })
+      return sortDirection === "asc" ? compareResult : -compareResult;
+    });
 
   const handleSort = (field: string) => {
     if (sortField === field) {
@@ -127,16 +142,31 @@ export default function AdminCustomersPage() {
     }
   }
 
-  const getStatusBadgeClass = (status: string) => {
+  const getStatusBadgeClass = (status?: string) => { 
     switch (status) {
       case "active":
         return "bg-green-100 text-green-800"
       case "inactive":
         return "bg-gray-100 text-gray-800"
       default:
-        return "bg-gray-100 text-gray-800"
+        return "bg-blue-100 text-blue-800"
     }
   }
+
+  const formatTimestamp = (timestamp: Timestamp | undefined | null): string => {
+    if (timestamp && timestamp.toDate) {
+      try {
+        return format(timestamp.toDate(), 'PPP');
+      } catch (e) {
+        console.error("Error formatting date:", e);
+        return "Invalid Date";
+      }
+    }
+    return "N/A";
+  }
+
+  // Combine loading states for UI
+  const isLoading = authLoading || dataLoading;
 
   return (
     <div className="container mx-auto px-4 py-12">
@@ -159,23 +189,9 @@ export default function AdminCustomersPage() {
               className="pl-10"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              disabled={isLoading}
             />
           </div>
-        </div>
-        <div className="w-full md:w-48">
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger>
-              <div className="flex items-center">
-                <Filter className="mr-2 h-4 w-4" />
-                <SelectValue placeholder="Status" />
-              </div>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="inactive">Inactive</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
       </div>
 
@@ -183,67 +199,62 @@ export default function AdminCustomersPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Customer</TableHead>
               <TableHead>
-                <div className="flex items-center cursor-pointer" onClick={() => handleSort("joined")}>
+                <div className="flex items-center cursor-pointer" onClick={() => !isLoading && handleSort('displayName')}>
+                  Customer
+                  {sortField === 'displayName' && <ArrowUpDown className="ml-2 h-4 w-4" />}
+                </div>
+              </TableHead>
+              <TableHead>
+                <div className="flex items-center cursor-pointer" onClick={() => !isLoading && handleSort("createdAt")}>
                   Joined
-                  <ArrowUpDown className="ml-2 h-4 w-4" />
+                  {sortField === 'createdAt' && <ArrowUpDown className="ml-2 h-4 w-4" />}
                 </div>
               </TableHead>
-              <TableHead>
-                <div className="flex items-center cursor-pointer" onClick={() => handleSort("orders")}>
-                  Orders
-                  <ArrowUpDown className="ml-2 h-4 w-4" />
-                </div>
-              </TableHead>
-              <TableHead>
-                <div className="flex items-center cursor-pointer" onClick={() => handleSort("spent")}>
-                  Total Spent
-                  <ArrowUpDown className="ml-2 h-4 w-4" />
-                </div>
-              </TableHead>
-              <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredCustomers.length === 0 ? (
+            {isLoading ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8">
-                  No customers found. Try adjusting your filters.
+                <TableCell colSpan={3} className="text-center py-8">
+                  <div className="flex justify-center items-center gap-2">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    <span>{authLoading ? 'Verifying access...' : 'Loading customers...'}</span>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : error ? (
+              <TableRow>
+                <TableCell colSpan={3} className="text-center py-8 text-destructive">
+                  {error}
+                </TableCell>
+              </TableRow>
+            ) : filteredCustomers.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={3} className="text-center py-8">
+                  No customers found. Try adjusting your search.
                 </TableCell>
               </TableRow>
             ) : (
               filteredCustomers.map((customer) => (
-                <TableRow key={customer.id}>
+                <TableRow key={customer.uid}>
                   <TableCell>
                     <div className="flex items-center gap-3">
                       <Avatar>
-                        <AvatarFallback>{customer.name.charAt(0)}</AvatarFallback>
+                        <AvatarFallback>{customer.displayName.charAt(0)}</AvatarFallback>
                       </Avatar>
                       <div>
-                        <div className="font-medium">{customer.name}</div>
+                        <div className="font-medium">{customer.displayName}</div>
                         <div className="text-sm text-muted-foreground">{customer.email}</div>
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell>{customer.joined}</TableCell>
-                  <TableCell>{customer.orders}</TableCell>
-                  <TableCell>${customer.spent.toFixed(2)}</TableCell>
-                  <TableCell>
-                    <span
-                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${getStatusBadgeClass(customer.status)}`}
-                    >
-                      {customer.status.charAt(0).toUpperCase() + customer.status.slice(1)}
-                    </span>
-                  </TableCell>
+                  <TableCell>{formatTimestamp(customer.createdAt)}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
                       <Button variant="ghost" size="sm" asChild>
-                        <Link href={`/admin/customers/${customer.id}`}>View Profile</Link>
-                      </Button>
-                      <Button variant="ghost" size="sm" asChild>
-                        <Link href={`/admin/customers/${customer.id}/orders`}>View Orders</Link>
+                        <Link href={`/admin/customers/${customer.uid}`}>View Profile</Link>
                       </Button>
                     </div>
                   </TableCell>

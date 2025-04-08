@@ -43,7 +43,7 @@ export default function RegisterModal({ isOpen, onClose, onLoginClick }: Registe
     setLoading(true)
 
     try {
-      await register(email, password)
+      await register(email, password, name)
       toast({
         title: "Registration successful",
         description: "Your account has been created successfully.",

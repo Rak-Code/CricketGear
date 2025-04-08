@@ -10,13 +10,122 @@ import { SelectTrigger } from "@/components/ui/select"
 
 import { Select } from "@/components/ui/select"
 
-import { Users, Package, ShoppingCart, DollarSign, ArrowUpRight, ArrowDownRight, Star, BarChart } from "lucide-react"
+import { Users, Package, ShoppingCart, DollarSign, ArrowUpRight, ArrowDownRight, Star, BarChart, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { useAuth } from "@/context/auth-context";
+import { db } from "@/lib/firebase/firebase";
+import { collection, getCountFromServer } from "firebase/firestore";
+import { useState, useEffect } from "react";
 
 export default function AdminDashboard() {
+  const { user, isAdmin, loading: authLoading, refreshToken, debugAdminStatus } = useAuth();
+  const [customerCount, setCustomerCount] = useState<number | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [statsError, setStatsError] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
+  const [hasAttemptedFetch, setHasAttemptedFetch] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const MAX_RETRIES = 3;
+
+  const fetchStats = async (isRetry = false) => {
+    setStatsLoading(true);
+    setStatsError(null);
+    try {
+      // Refresh token to ensure we have the latest claims
+      await refreshToken();
+      
+      const usersCollectionRef = collection(db, "users");
+      const snapshot = await getCountFromServer(usersCollectionRef);
+      setCustomerCount(snapshot.data().count);
+      setHasAttemptedFetch(true);
+      setRetryCount(0); // Reset retry count on success
+    } catch (error) {
+      console.error("Error fetching dashboard stats:", error);
+      const errorMessage = `Failed to load stats: ${error.message}`;
+      setStatsError(errorMessage);
+      
+      // Implement retry logic
+      if (!isRetry && retryCount < MAX_RETRIES) {
+        setRetryCount(prev => prev + 1);
+        setTimeout(() => fetchStats(true), 2000); // Retry after 2 seconds
+      } else {
+        setHasAttemptedFetch(true);
+      }
+    } finally {
+      setStatsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (authLoading) {
+      setStatsLoading(true);
+      return;
+    }
+    
+    // Debug admin status
+    debugAdminStatus();
+    
+    // Set debug info
+    setDebugInfo({
+      userId: user?.uid,
+      email: user?.email,
+      isAdmin: isAdmin,
+      loading: authLoading,
+      retryCount,
+      environment: process.env.NODE_ENV
+    });
+    
+    if (!isAdmin) {
+      setStatsError("Access Denied: You do not have admin privileges.");
+      setStatsLoading(false);
+      return;
+    }
+
+    // Only attempt to fetch if we haven't tried before or if we're refreshing
+    if (!hasAttemptedFetch) {
+      fetchStats();
+    }
+  }, [isAdmin, authLoading, refreshToken, debugAdminStatus, user, hasAttemptedFetch, retryCount]);
+
+  // Add debug section at the top
+  if (statsError) {
+    return (
+      <div className="container mx-auto px-4 py-12">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-8">
+          <h2 className="text-xl font-semibold text-red-800 mb-4">Access Error</h2>
+          <p className="text-red-700 mb-4">{statsError}</p>
+          <div className="bg-white p-4 rounded border">
+            <h3 className="font-medium mb-2">Debug Information:</h3>
+            <pre className="text-sm">
+              {JSON.stringify(debugInfo, null, 2)}
+            </pre>
+          </div>
+          <div className="mt-4 space-y-2">
+            <Button 
+              onClick={() => {
+                setHasAttemptedFetch(false);
+                setRetryCount(0); // Reset retry count when manually retrying
+                refreshToken();
+              }}
+              className="mr-2"
+              variant="outline"
+            >
+              Retry
+            </Button>
+            {retryCount > 0 && retryCount <= MAX_RETRIES && (
+              <p className="text-sm text-gray-600">
+                Retry attempt {retryCount} of {MAX_RETRIES}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto px-4 py-12">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
@@ -77,7 +186,15 @@ export default function AdminDashboard() {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">2,345</div>
+              <div className="text-2xl font-bold">
+                {statsLoading ? (
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                ) : statsError ? (
+                  "Error"
+                ) : (
+                  customerCount ?? 0
+                )}
+              </div>
               <p className="text-xs text-muted-foreground">
                 <span className="text-red-500 inline-flex items-center">
                   <ArrowDownRight className="mr-1 h-3 w-3" />
