@@ -43,6 +43,18 @@ service cloud.firestore {
         request.query.limit <= 100; // Limit the number of documents that can be fetched at once
     }
 
+    // Rules for the 'products' collection
+    match /products/{productId} {
+      // Allow read access to all authenticated users
+      allow read: if isAuthenticated();
+      
+      // For development: any authenticated user can create products
+      allow create: if isAuthenticated();
+      
+      // Only admins can update or delete products
+      allow update, delete: if isAdmin();
+    }
+
     // Allow admins to read all documents
     match /{document=**} {
       allow read: if isAdmin();

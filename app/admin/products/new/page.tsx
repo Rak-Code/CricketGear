@@ -14,12 +14,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/components/ui/use-toast"
+import { useAuth } from "@/context/auth-context"
+import { db } from "@/lib/firebase/firebase"
+import { collection, addDoc, serverTimestamp, getFirestore } from "firebase/firestore"
+import { ImageUpload } from "@/components/ui/image-upload"
 
 export default function AddProductPage() {
   const router = useRouter()
   const { toast } = useToast()
+  const { user, isAdmin, loading: authLoading, refreshToken, debugAdminStatus } = useAuth()
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [images, setImages] = useState<string[]>(["/placeholder.svg?height=400&width=300"])
+  const [error, setError] = useState<string | null>(null)
+  const [images, setImages] = useState<{ url: string; publicId: string }[]>([])
 
   const [formData, setFormData] = useState({
     name: "",
@@ -45,29 +51,150 @@ export default function AddProductPage() {
     setFormData((prev) => ({ ...prev, [name]: checked }))
   }
 
-  const addImageField = () => {
-    setImages([...images, "/placeholder.svg?height=400&width=300"])
-  }
-
-  const removeImageField = (index: number) => {
-    const newImages = [...images]
-    newImages.splice(index, 1)
+  const handleImagesChange = (newImages: { url: string; publicId: string }[]) => {
     setImages(newImages)
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleImageRemove = (imageToRemove: { url: string; publicId: string }) => {
+    setImages(prev => prev.filter(img => img.url !== imageToRemove.url))
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
+    setError(null)
 
-    // Simulate API call
-    setTimeout(() => {
-      toast({
-        title: "Product added successfully",
-        description: "The product has been added to your inventory.",
+    try {
+      // Debug admin status before submission
+      await debugAdminStatus();
+
+      // Check if user is admin
+      if (!isAdmin) {
+        setError("You don't have permission to add products. Admin status check failed.")
+        setIsSubmitting(false)
+        return
+      }
+
+      console.log("Submitting product as admin:", {
+        isAdmin,
+        userId: user?.uid,
+        adminStatus: user?.isAdmin
       })
-      setIsSubmitting(false)
-      router.push("/admin/products")
-    }, 1500)
+
+      // Validate required fields
+      if (!formData.name || !formData.category || !formData.price) {
+        setError("Please fill all required fields (name, category, price)");
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Force token refresh to ensure latest admin status
+      await refreshToken();
+
+      // Create product object with required fields first
+      const productData = {
+        name: formData.name,
+        description: formData.description || "",
+        price: parseFloat(formData.price) || 0,
+        category: formData.category,
+        stock: parseInt(formData.stock, 10) || 0,
+        status: parseInt(formData.stock, 10) > 0 ? "active" : "out_of_stock",
+        createdAt: serverTimestamp(),
+        createdBy: user?.uid || "unknown",
+      }
+
+      // Add optional fields if present
+      if (formData.discountPrice) {
+        productData["discountPrice"] = parseFloat(formData.discountPrice);
+      }
+      
+      if (formData.brand) {
+        productData["brand"] = formData.brand;
+      }
+      
+      if (formData.featured) {
+        productData["featured"] = formData.featured;
+      }
+      
+      // Add Cloudinary images
+      if (images.length > 0) {
+        productData["images"] = images.map(img => ({
+          url: img.url,
+          publicId: img.publicId
+        }));
+      }
+
+      console.log("Adding product to Firestore:", productData);
+      console.log("Firestore instance:", db);
+
+      // Create products collection if it doesn't exist by adding a document
+      try {
+        const productsCollection = collection(db, "products");
+        const docRef = await addDoc(productsCollection, productData);
+        console.log("Product added with ID:", docRef.id);
+        
+        toast({
+          title: "Product added successfully",
+          description: "The product has been added to your inventory.",
+        });
+        
+        router.push("/admin/products");
+      } catch (firestoreError: any) {
+        console.error("Firestore error:", firestoreError);
+        throw firestoreError; // Re-throw to be caught by the outer catch
+      }
+    } catch (err: any) {
+      console.error("Error adding product:", err);
+      
+      // Parse Firebase error code
+      let errorMessage = "Unknown error occurred";
+      
+      if (err.code) {
+        switch (err.code) {
+          case 'permission-denied':
+            errorMessage = "You don't have permission to add products. Please check your admin status.";
+            break;
+          case 'unavailable':
+            errorMessage = "Service temporarily unavailable. Please try again later.";
+            break;
+          case 'unauthenticated':
+            errorMessage = "Authentication required. Please sign in again.";
+            break;
+          default:
+            errorMessage = `Error: ${err.message || err.code}`;
+        }
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      setError(`Failed to add product: ${errorMessage}. Code: ${err.code || "N/A"}`);
+      
+      toast({
+        title: "Error",
+        description: "Failed to add product: " + errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  // If not admin, show error
+  if (!authLoading && !isAdmin) {
+    return (
+      <div className="container mx-auto px-4 py-12">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-8">
+          <h2 className="text-xl font-semibold text-red-800 mb-4">Access Denied</h2>
+          <p className="text-red-700 mb-4">You don't have permission to add products.</p>
+          <Button variant="outline" asChild>
+            <Link href="/admin/products">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to Products
+            </Link>
+          </Button>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -88,6 +215,12 @@ export default function AddProductPage() {
         </div>
       </div>
 
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+          <p className="text-red-700">{error}</p>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-8">
         <Card>
           <CardHeader>
@@ -97,7 +230,7 @@ export default function AddProductPage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="name">Product Name</Label>
+                <Label htmlFor="name">Product Name*</Label>
                 <Input
                   id="name"
                   name="name"
@@ -133,13 +266,12 @@ export default function AddProductPage() {
                 onChange={handleChange}
                 placeholder="Enter product description"
                 rows={4}
-                required
               />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="price">Price ($)</Label>
+                <Label htmlFor="price">Price* (₹)</Label>
                 <Input
                   id="price"
                   name="price"
@@ -153,7 +285,7 @@ export default function AddProductPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="discountPrice">Discount Price ($)</Label>
+                <Label htmlFor="discountPrice">Discount Price (₹)</Label>
                 <Input
                   id="discountPrice"
                   name="discountPrice"
@@ -166,7 +298,7 @@ export default function AddProductPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="stock">Stock</Label>
+                <Label htmlFor="stock">Stock*</Label>
                 <Input
                   id="stock"
                   name="stock"
@@ -182,7 +314,7 @@ export default function AddProductPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="category">Category</Label>
+                <Label htmlFor="category">Category*</Label>
                 <Select value={formData.category} onValueChange={(value) => handleSelectChange("category", value)}>
                   <SelectTrigger id="category">
                     <SelectValue placeholder="Select category" />
@@ -214,51 +346,22 @@ export default function AddProductPage() {
             <CardTitle>Product Images</CardTitle>
             <CardDescription>Add images of your product</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {images.map((image, index) => (
-              <div key={index} className="flex items-center gap-4">
-                <div className="w-24 h-24 border rounded-md overflow-hidden flex-shrink-0">
-                  <img
-                    src={image || "/placeholder.svg"}
-                    alt={`Product image ${index + 1}`}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <div className="flex-1">
-                  <Input
-                    type="text"
-                    value={image}
-                    onChange={(e) => {
-                      const newImages = [...images]
-                      newImages[index] = e.target.value
-                      setImages(newImages)
-                    }}
-                    placeholder="Image URL"
-                  />
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => removeImageField(index)}
-                  disabled={images.length === 1}
-                >
-                  <Trash className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-            <Button type="button" variant="outline" onClick={addImageField} className="w-full">
-              <Plus className="mr-2 h-4 w-4" />
-              Add Another Image
-            </Button>
+          <CardContent>
+            <ImageUpload
+              value={images}
+              disabled={isSubmitting}
+              onChange={handleImagesChange}
+              onRemove={handleImageRemove}
+              maxImages={5}
+            />
           </CardContent>
         </Card>
 
         <div className="flex justify-end gap-4">
-          <Button variant="outline" type="button" asChild>
+          <Button type="button" variant="outline" asChild>
             <Link href="/admin/products">Cancel</Link>
           </Button>
-          <Button type="submit" disabled={isSubmitting}>
+          <Button type="submit" disabled={isSubmitting || authLoading}>
             {isSubmitting ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

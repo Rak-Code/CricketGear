@@ -105,24 +105,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           
           // Check for admin status in multiple ways
           let isAdmin = false;
+          let adminSource = '';
           
           // 1. Check custom claims
           if (idTokenResult.claims.admin === true) {
             isAdmin = true;
+            adminSource = 'custom_claims';
             console.log("Admin status from custom claims: true");
           }
           
           // 2. Check specific UID (for development)
           if (authUser.uid === ADMIN_UID) {
             isAdmin = true;
-            console.log("Admin status set to true for specific UID");
+            adminSource = 'development_uid';
+            console.log(`Admin status set to true for specific UID: ${authUser.uid}`);
           }
           
           console.log("Auth state changed:", {
             uid: authUser.uid,
             email: authUser.email,
             isAdmin,
-            claims: idTokenResult.claims
+            adminSource,
+            uidMatch: authUser.uid === ADMIN_UID,
+            claims: idTokenResult.claims,
+            adminUID: ADMIN_UID
           })
 
           setUser({
@@ -131,6 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             displayName: authUser.displayName || "User",
             photoURL: authUser.photoURL || undefined,
             isAdmin,
+            adminSource
           })
         } catch (error) {
           console.error("Error in auth state change:", error)
@@ -160,7 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
-        isAdmin: user?.isAdmin || false,
+        isAdmin: user?.isAdmin ?? false,
         loading,
         logout,
         refreshToken,

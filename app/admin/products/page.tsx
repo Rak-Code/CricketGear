@@ -1,8 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
-import { Plus, Search, Filter, MoreHorizontal, ArrowUpDown } from "lucide-react"
+import { Plus, Search, Filter, MoreHorizontal, ArrowUpDown, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -14,97 +14,87 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { useAuth } from "@/context/auth-context"
+import { db } from "@/lib/firebase/firebase"
+import { collection, getDocs, query, orderBy, Timestamp } from "firebase/firestore"
+import { useToast } from "@/components/ui/use-toast"
 
-// Mock products data
-const products = [
-  {
-    id: "1",
-    name: "Pro Master English Willow Bat",
-    category: "bats",
-    price: 249.99,
-    stock: 15,
-    status: "active",
-  },
-  {
-    id: "2",
-    name: "Elite Player Kashmir Willow Bat",
-    category: "bats",
-    price: 149.99,
-    stock: 23,
-    status: "active",
-  },
-  {
-    id: "3",
-    name: "Junior Academy Cricket Bat",
-    category: "bats",
-    price: 89.99,
-    stock: 30,
-    status: "active",
-  },
-  {
-    id: "4",
-    name: "Tournament Special Bat",
-    category: "bats",
-    price: 179.99,
-    stock: 12,
-    status: "active",
-  },
-  {
-    id: "5",
-    name: "Professional Batting Pads",
-    category: "pads",
-    price: 129.99,
-    stock: 18,
-    status: "active",
-  },
-  {
-    id: "6",
-    name: "Premium Batting Gloves",
-    category: "gloves",
-    price: 79.99,
-    stock: 25,
-    status: "active",
-  },
-  {
-    id: "7",
-    name: "Cricket Ball (Pack of 3)",
-    category: "balls",
-    price: 90.0,
-    stock: 40,
-    status: "active",
-  },
-  {
-    id: "8",
-    name: "Protective Helmet",
-    category: "helmets",
-    price: 159.99,
-    stock: 10,
-    status: "active",
-  },
-  {
-    id: "9",
-    name: "Cricket Shoes",
-    category: "footwear",
-    price: 119.99,
-    stock: 0,
-    status: "out_of_stock",
-  },
-  {
-    id: "10",
-    name: "Training Cricket Ball",
-    category: "balls",
-    price: 25.99,
-    stock: 5,
-    status: "low_stock",
-  },
-]
+interface Product {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+  stock: number;
+  status: string;
+  brand?: string;
+  featured?: boolean;
+  description?: string;
+  images?: string[];
+  createdAt?: Timestamp;
+}
 
 export default function AdminProductsPage() {
+  const { user, isAdmin, loading: authLoading } = useAuth()
+  const { toast } = useToast()
+  const [products, setProducts] = useState<Product[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
   const [sortField, setSortField] = useState("name")
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc")
+
+  // Fetch products from Firestore
+  useEffect(() => {
+    if (authLoading) return;
+
+    if (!isAdmin) {
+      setError("Access Denied: You do not have permission to view this page.")
+      setLoading(false)
+      return
+    }
+
+    const fetchProducts = async () => {
+      setLoading(true)
+      try {
+        const productsRef = collection(db, "products")
+        const q = query(productsRef, orderBy("createdAt", "desc"))
+        const querySnapshot = await getDocs(q)
+        
+        const fetchedProducts: Product[] = querySnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            name: data.name || "Unnamed Product",
+            category: data.category || "uncategorized",
+            price: data.price || 0,
+            stock: data.stock || 0,
+            status: data.status || "active",
+            brand: data.brand,
+            featured: data.featured,
+            description: data.description,
+            images: data.images,
+            createdAt: data.createdAt
+          };
+        });
+        
+        setProducts(fetchedProducts)
+      } catch (err: any) {
+        console.error("Error fetching products:", err)
+        setError("Failed to load products. Please try again later.")
+        toast({
+          title: "Error",
+          description: "Could not fetch product data: " + err.message,
+          variant: "destructive",
+        })
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchProducts()
+  }, [isAdmin, authLoading, toast])
 
   // Filter and sort products
   const filteredProducts = products
@@ -159,6 +149,34 @@ export default function AdminProductsPage() {
       default:
         return status.charAt(0).toUpperCase() + status.slice(1)
     }
+  }
+
+  if (loading || authLoading) {
+    return (
+      <div className="container mx-auto px-4 py-12 flex justify-center items-center min-h-[50vh]">
+        <div className="flex flex-col items-center gap-2">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Loading products...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto px-4 py-12">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-8">
+          <h2 className="text-xl font-semibold text-red-800 mb-4">Error</h2>
+          <p className="text-red-700 mb-4">{error}</p>
+          <Button variant="outline" asChild>
+            <Link href="/admin">
+              <ArrowUpDown className="mr-2 h-4 w-4" />
+              Back to Dashboard
+            </Link>
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -257,20 +275,26 @@ export default function AdminProductsPage() {
             {filteredProducts.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center py-8">
-                  No products found. Try adjusting your filters.
+                  No products found. Try adjusting your search or filters.
                 </TableCell>
               </TableRow>
             ) : (
               filteredProducts.map((product) => (
                 <TableRow key={product.id}>
-                  <TableCell className="font-medium">{product.id}</TableCell>
+                  <TableCell className="font-medium">{product.id.substring(0, 5)}...</TableCell>
                   <TableCell>{product.name}</TableCell>
-                  <TableCell className="capitalize">{product.category}</TableCell>
-                  <TableCell>${product.price.toFixed(2)}</TableCell>
+                  <TableCell>
+                    <span className="capitalize">
+                      {product.category === "uncategorized" ? "Other" : product.category}
+                    </span>
+                  </TableCell>
+                  <TableCell>₹{product.price.toFixed(2)}</TableCell>
                   <TableCell>{product.stock}</TableCell>
                   <TableCell>
                     <span
-                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${getStatusBadgeClass(product.status)}`}
+                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${getStatusBadgeClass(
+                        product.status
+                      )}`}
                     >
                       {getStatusLabel(product.status)}
                     </span>
@@ -280,18 +304,23 @@ export default function AdminProductsPage() {
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="icon">
                           <MoreHorizontal className="h-4 w-4" />
-                          <span className="sr-only">Actions</span>
+                          <span className="sr-only">Open menu</span>
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem asChild>
-                          <Link href={`/admin/products/${product.id}`}>View</Link>
+                          <Link href={`/admin/products/${product.id}`}>View Details</Link>
                         </DropdownMenuItem>
                         <DropdownMenuItem asChild>
-                          <Link href={`/admin/products/${product.id}/edit`}>Edit</Link>
+                          <Link href={`/admin/products/${product.id}/edit`}>Edit Product</Link>
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-red-500">Delete</DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          asChild
+                        >
+                          <Link href={`/admin/products/${product.id}/delete`}>Delete Product</Link>
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
